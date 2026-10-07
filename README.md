@@ -1,504 +1,613 @@
-const canvas = document.getElementById('editorCanvas');
-const ctx = canvas.getContext('2d');
-const imageUpload = document.getElementById('imageUpload');
+import React, { useState } from 'react';
+import {
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Image,
+  Pressable,
+  TextInput,
+  StatusBar,
+  Platform,
+} from 'react-native';
+import Slider from '@react-native-community/slider';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const controls = {
-  brightness: document.getElementById('brightness'),
-  contrast: document.getElementById('contrast'),
-  saturation: document.getElementById('saturation'),
-  exposure: document.getElementById('exposure'),
-  vibrance: document.getElementById('vibrance'),
-  blur: document.getElementById('blur'),
-  rotate: document.getElementById('rotate'),
-  zoom: document.getElementById('zoom'),
-  fontSize: document.getElementById('fontSize'),
-  textOpacity: document.getElementById('textOpacity')
-};
-
-const labels = {
-  brightness: document.getElementById('brightnessValue'),
-  contrast: document.getElementById('contrastValue'),
-  saturation: document.getElementById('saturationValue'),
-  exposure: document.getElementById('exposureValue'),
-  vibrance: document.getElementById('vibranceValue'),
-  blur: document.getElementById('blurValue'),
-  rotate: document.getElementById('rotateValue'),
-  zoom: document.getElementById('zoomValue'),
-  fontSize: document.getElementById('fontSizeValue'),
-  textOpacity: document.getElementById('textOpacityValue')
-};
-
-const state = {
-  image: null,
-  brightness: 100,
-  contrast: 100,
-  saturation: 100,
-  exposure: 100,
-  vibrance: 100,
-  blur: 0,
-  rotate: 0,
-  zoom: 100,
-  filterPreset: 'original',
-  aspectRatio: '16:9',
-  text: '',
-  textColor: '#ffffff',
-  fontSize: 48,
-  textOpacity: 100,
-  sticker: '',
-  stickerX: 0,
-  stickerY: 0,
-  textX: 0,
-  textY: 0,
-  drag: null
-};
-
-const presets = {
+const PRESETS = {
   original: { brightness: 100, contrast: 100, saturation: 100, exposure: 100, vibrance: 100, blur: 0 },
   golden: { brightness: 112, contrast: 120, saturation: 128, exposure: 118, vibrance: 140, blur: 0 },
   vintage: { brightness: 116, contrast: 90, saturation: 82, exposure: 105, vibrance: 100, blur: 0.5 },
-  cinematic: { brightness: 92, contrast: 138, saturation: 126, exposure: 112, vibrance: 120, blur: 0 },
+  cinematic: { brightness: 90, contrast: 138, saturation: 126, exposure: 112, vibrance: 120, blur: 0 },
   neon: { brightness: 108, contrast: 110, saturation: 150, exposure: 120, vibrance: 160, blur: 0 },
-  mono: { brightness: 100, contrast: 120, saturation: 55, exposure: 100, vibrance: 90, blur: 0 }
+  mono: { brightness: 100, contrast: 120, saturation: 55, exposure: 100, vibrance: 90, blur: 0 },
 };
 
-function updateLabels() {
-  labels.brightness.textContent = `${state.brightness}%`;
-  labels.contrast.textContent = `${state.contrast}%`;
-  labels.saturation.textContent = `${state.saturation}%`;
-  labels.exposure.textContent = `${state.exposure}%`;
-  labels.vibrance.textContent = `${state.vibrance}%`;
-  labels.blur.textContent = `${state.blur}px`;
-  labels.rotate.textContent = `${state.rotate}°`;
-  labels.zoom.textContent = `${state.zoom}%`;
-  labels.fontSize.textContent = `${state.fontSize}`;
-  labels.textOpacity.textContent = `${state.textOpacity}%`;
-}
+const TOOL_TABS = ['adjust', 'filters', 'text', 'stickers'];
+const STICKERS = ['✨', '⭐', '❤️', '🌈', '💎', '🎉', '🔥', '⚡', '🌟'];
 
-function setPreset(name) {
-  const preset = presets[name];
-  if (!preset) return;
+export default function App() {
+  const [selectedTab, setSelectedTab] = useState('adjust');
+  const [imageUri, setImageUri] = useState(null);
+  const [text, setText] = useState('');
+  const [color, setColor] = useState('#ffffff');
+  const [fontSize, setFontSize] = useState(32);
+  const [opacity, setOpacity] = useState(100);
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const [saturation, setSaturation] = useState(100);
+  const [exposure, setExposure] = useState(100);
+  const [vibrance, setVibrance] = useState(100);
+  const [blur, setBlur] = useState(0);
+  const [rotation, setRotation] = useState(0);
+  const [zoom, setZoom] = useState(100);
+  const [sticker, setSticker] = useState('');
 
-  state.filterPreset = name;
-  state.brightness = preset.brightness;
-  state.contrast = preset.contrast;
-  state.saturation = preset.saturation;
-  state.exposure = preset.exposure;
-  state.vibrance = preset.vibrance;
-  state.blur = preset.blur;
-
-  controls.brightness.value = preset.brightness;
-  controls.contrast.value = preset.contrast;
-  controls.saturation.value = preset.saturation;
-  controls.exposure.value = preset.exposure;
-  controls.vibrance.value = preset.vibrance;
-  controls.blur.value = preset.blur;
-
-  document.querySelectorAll('.preset').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.preset === name);
-  });
-
-  updateLabels();
-  renderCanvas();
-}
-
-function getAspectRatioValue() {
-  const map = {
-    '16:9': 16 / 9,
-    '9:16': 9 / 16,
-    '1:1': 1,
-    '4:5': 4 / 5
-  };
-  return map[state.aspectRatio] || 16 / 9;
-}
-
-function getCanvasFrame() {
-  const ratio = getAspectRatioValue();
-  const maxW = canvas.width * 0.76;
-  const maxH = canvas.height * 0.76;
-
-  let width = maxW;
-  let height = width / ratio;
-
-  if (height > maxH) {
-    height = maxH;
-    width = height * ratio;
-  }
-
-  const x = (canvas.width - width) / 2;
-  const y = (canvas.height - height) / 2;
-
-  return { x, y, width, height };
-}
-
-function getPointerPosition(event) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY
-  };
-}
-
-function measureTextWidth(text, fontSize) {
-  ctx.save();
-  ctx.font = `700 ${fontSize}px Inter`;
-  const width = ctx.measureText(text).width;
-  ctx.restore();
-  return width;
-}
-
-function drawPlaceholder() {
-  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  gradient.addColorStop(0, '#1a2438');
-  gradient.addColorStop(1, '#0d1423');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = '#edf2ff';
-  ctx.textAlign = 'center';
-  ctx.font = '700 42px Inter';
-  ctx.fillText('Upload a photo to start editing', canvas.width / 2, canvas.height / 2 - 18);
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = '500 20px Inter';
-  ctx.fillText('PixelCut Pro', canvas.width / 2, canvas.height / 2 + 26);
-}
-
-function renderCanvas() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!state.image) {
-    drawPlaceholder();
-    return;
-  }
-
-  const frame = getCanvasFrame();
-  const image = state.image;
-  const zoomRatio = state.zoom / 100;
-
-  const drawWidth = frame.width * zoomRatio;
-  const drawHeight = frame.height * zoomRatio;
-  const drawX = frame.x + (frame.width - drawWidth) / 2;
-  const drawY = frame.y + (frame.height - drawHeight) / 2;
-
-  ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate((state.rotate * Math.PI) / 180);
-  ctx.translate(-canvas.width / 2, -canvas.height / 2);
-
-  const filterBase = `brightness(${state.brightness}%) contrast(${state.contrast}%) saturate(${state.saturation}%) sepia(${state.filterPreset === 'vintage' ? 0.35 : 0})`;
-  const exposureFilter = `brightness(${state.exposure}%)`;
-  const vibranceFilter = `saturate(${state.vibrance}%)`;
-
-  ctx.filter = `${filterBase} ${exposureFilter} ${vibranceFilter} blur(${state.blur}px)`;
-
-  if (state.filterPreset === 'golden') {
-    ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%) saturate(${state.saturation}%) sepia(0.25) hue-rotate(-10deg) blur(${state.blur}px)`;
-  }
-
-  if (state.filterPreset === 'cinematic') {
-    ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%) saturate(${state.saturation}%) hue-rotate(8deg) blur(${state.blur}px)`;
-  }
-
-  if (state.filterPreset === 'neon') {
-    ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%) saturate(${state.saturation}%) hue-rotate(40deg) blur(${state.blur}px)`;
-  }
-
-  if (state.filterPreset === 'mono') {
-    ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%) grayscale(1) blur(${state.blur}px)`;
-  }
-
-  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-  ctx.restore();
-
-  drawTextOverlay();
-  drawStickerOverlay();
-}
-
-function drawTextOverlay() {
-  if (!state.text.trim()) return;
-
-  ctx.save();
-  ctx.font = `700 ${state.fontSize}px Inter`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = state.textColor.replace(')', ', 1)');
-
-  const alpha = state.textOpacity / 100;
-  const color = hexToRgba(state.textColor, alpha);
-  ctx.fillStyle = color;
-  ctx.shadowColor = 'rgba(0,0,0,0.45)';
-  ctx.shadowBlur = 12;
-  ctx.fillText(state.text, canvas.width / 2, canvas.height * 0.75);
-  ctx.restore();
-}
-
-function drawStickerOverlay() {
-  if (!state.sticker) return;
-
-  const size = Math.min(canvas.width * 0.09, 90);
-  ctx.save();
-  ctx.font = `${size}px serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,0.3)';
-  ctx.shadowBlur = 18;
-  ctx.fillText(state.sticker, canvas.width * 0.78, canvas.height * 0.28);
-  ctx.restore();
-}
-
-function hexToRgba(hex, alpha = 1) {
-  const clean = hex.replace('#', '');
-  const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
-  const value = parseInt(full, 16);
-  const r = (value >> 16) & 255;
-  const g = (value >> 8) & 255;
-  const b = value & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function handleUpload(event) {
-  const [file] = event.target.files;
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = () => {
-      state.image = img;
-      renderCanvas();
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function resetEditor() {
-  state.image = null;
-  state.brightness = 100;
-  state.contrast = 100;
-  state.saturation = 100;
-  state.exposure = 100;
-  state.vibrance = 100;
-  state.blur = 0;
-  state.rotate = 0;
-  state.zoom = 100;
-  state.filterPreset = 'original';
-  state.aspectRatio = '16:9';
-  state.text = '';
-  state.textColor = '#ffffff';
-  state.fontSize = 48;
-  state.textOpacity = 100;
-  state.sticker = '';
-
-  document.getElementById('textInput').value = '';
-  document.getElementById('textColor').value = '#ffffff';
-  controls.brightness.value = 100;
-  controls.contrast.value = 100;
-  controls.saturation.value = 100;
-  controls.exposure.value = 100;
-  controls.vibrance.value = 100;
-  controls.blur.value = 0;
-  controls.rotate.value = 0;
-  controls.zoom.value = 100;
-  controls.fontSize.value = 48;
-  controls.textOpacity.value = 100;
-
-  document.querySelectorAll('.preset').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.preset === 'original');
-  });
-  document.querySelectorAll('.ratio').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.ratio === '16:9');
-  });
-
-  updateLabels();
-  renderCanvas();
-}
-
-function exportImage() {
-  const link = document.createElement('a');
-  link.download = 'pixelcut-pro-export.png';
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-}
-
-function attachEventHandlers() {
-  imageUpload.addEventListener('change', handleUpload);
-
-  document.querySelectorAll('.tab').forEach((button) => {
-    button.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab === button));
-      document.querySelectorAll('.panel').forEach((panel) => {
-        panel.classList.toggle('active', panel.id === button.dataset.panel);
-      });
-    });
-  });
-
-  document.querySelectorAll('.preset').forEach((button) => {
-    button.addEventListener('click', () => setPreset(button.dataset.preset));
-  });
-
-  document.querySelectorAll('.ratio').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.aspectRatio = button.dataset.ratio;
-      document.querySelectorAll('.ratio').forEach((ratioButton) => {
-        ratioButton.classList.toggle('active', ratioButton === button);
-      });
-      renderCanvas();
-    });
-  });
-
-  document.querySelectorAll('.sticker').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.sticker = button.dataset.sticker;
-      renderCanvas();
-    });
-  });
-
-  controls.brightness.addEventListener('input', (e) => {
-    state.brightness = Number(e.target.value);
-    state.filterPreset = 'original';
-    document.querySelectorAll('.preset').forEach((btn) => btn.classList.toggle('active', btn.dataset.preset === 'original'));
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.contrast.addEventListener('input', (e) => {
-    state.contrast = Number(e.target.value);
-    state.filterPreset = 'original';
-    document.querySelectorAll('.preset').forEach((btn) => btn.classList.toggle('active', btn.dataset.preset === 'original'));
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.saturation.addEventListener('input', (e) => {
-    state.saturation = Number(e.target.value);
-    state.filterPreset = 'original';
-    document.querySelectorAll('.preset').forEach((btn) => btn.classList.toggle('active', btn.dataset.preset === 'original'));
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.exposure.addEventListener('input', (e) => {
-    state.exposure = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.vibrance.addEventListener('input', (e) => {
-    state.vibrance = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.blur.addEventListener('input', (e) => {
-    state.blur = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.rotate.addEventListener('input', (e) => {
-    state.rotate = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.zoom.addEventListener('input', (e) => {
-    state.zoom = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.fontSize.addEventListener('input', (e) => {
-    state.fontSize = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  controls.textOpacity.addEventListener('input', (e) => {
-    state.textOpacity = Number(e.target.value);
-    updateLabels();
-    renderCanvas();
-  });
-
-  document.getElementById('textInput').addEventListener('input', (e) => {
-    state.text = e.target.value;
-    renderCanvas();
-  });
-
-  document.getElementById('textColor').addEventListener('input', (e) => {
-    state.textColor = e.target.value;
-    renderCanvas();
-  });
-
-  document.getElementById('resetBtn').addEventListener('click', resetEditor);
-  document.getElementById('downloadBtn').addEventListener('click', exportImage);
-
-  canvas.addEventListener('pointerdown', (event) => {
-    const pos = getPointerPosition(event);
-    if (!state.text && !state.sticker) return;
-
-    const textWidth = measureTextWidth(state.text || 'A', state.fontSize);
-    const textBox = {
-      x: canvas.width / 2 - textWidth / 2,
-      y: canvas.height * 0.75 - state.fontSize / 2,
-      width: textWidth,
-      height: state.fontSize * 1.2
-    };
-
-    const stickerSize = Math.min(canvas.width * 0.09, 90);
-    const stickerBox = {
-      x: canvas.width * 0.78 - stickerSize / 2,
-      y: canvas.height * 0.28 - stickerSize / 2,
-      width: stickerSize,
-      height: stickerSize
-    };
-
-    if (state.text && pos.x >= textBox.x && pos.x <= textBox.x + textBox.width && pos.y >= textBox.y && pos.y <= textBox.y + textBox.height) {
-      state.drag = { type: 'text', offsetX: pos.x - textBox.x, offsetY: pos.y - textBox.y };
-      canvas.setPointerCapture(event.pointerId);
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
       return;
     }
 
-    if (state.sticker && pos.x >= stickerBox.x && pos.x <= stickerBox.x + stickerBox.width && pos.y >= stickerBox.y && pos.y <= stickerBox.y + stickerBox.height) {
-      state.drag = { type: 'sticker', offsetX: pos.x - stickerBox.x, offsetY: pos.y - stickerBox.y };
-      canvas.setPointerCapture(event.pointerId);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+      allowsEditing: true,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setImageUri(result.assets[0].uri);
     }
-  });
+  };
 
-  canvas.addEventListener('pointermove', (event) => {
-    if (!state.drag) return;
-    const pos = getPointerPosition(event);
+  const applyPreset = (name) => {
+    const preset = PRESETS[name];
+    if (!preset) return;
+    setBrightness(preset.brightness);
+    setContrast(preset.contrast);
+    setSaturation(preset.saturation);
+    setExposure(preset.exposure);
+    setVibrance(preset.vibrance);
+    setBlur(preset.blur);
+  };
 
-    if (state.drag.type === 'text') {
-      state.textX = pos.x - state.drag.offsetX;
-      state.textY = pos.y - state.drag.offsetY;
-      const textWidth = measureTextWidth(state.text, state.fontSize);
-      const half = textWidth / 2;
-      state.textX = Math.min(Math.max(state.textX, canvas.width / 2 - half), canvas.width / 2 + half);
-      state.textY = Math.min(Math.max(state.textY, 20), canvas.height - 20);
+  const resetEditor = () => {
+    setImageUri(null);
+    setText('');
+    setColor('#ffffff');
+    setFontSize(32);
+    setOpacity(100);
+    setBrightness(100);
+    setContrast(100);
+    setSaturation(100);
+    setExposure(100);
+    setVibrance(100);
+    setBlur(0);
+    setRotation(0);
+    setZoom(100);
+    setSticker('');
+  };
+
+  const renderImage = () => {
+    if (!imageUri) {
+      return (
+        <LinearGradient
+          colors={['#1d2a3d', '#111827']}
+          style={styles.placeholder}
+        >
+          <Text style={styles.placeholderText}>Upload a photo</Text>
+          <Text style={styles.placeholderSubtext}>PixelCut Pro</Text>
+        </LinearGradient>
+      );
     }
 
-    if (state.drag.type === 'sticker') {
-      const stickerSize = Math.min(canvas.width * 0.09, 90);
-      state.stickerX = pos.x - state.drag.offsetX;
-      state.stickerY = pos.y - state.drag.offsetY;
-      state.stickerX = Math.min(Math.max(state.stickerX, 20), canvas.width - stickerSize - 20);
-      state.stickerY = Math.min(Math.max(state.stickerY, 20), canvas.height - stickerSize - 20);
-    }
+    return (
+      <View style={styles.imageFrame}>
+        <Image
+          source={{ uri: imageUri }}
+          style={[
+            styles.image,
+            {
+              opacity: 1,
+              transform: [{ rotate: `${rotation}deg` }, { scale: zoom / 100 }],
+              filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) sepia(${imageUri ? 0 : 0}) blur(${blur}px)`,
+            },
+          ]}
+        />
 
-    renderCanvas();
-  });
+        {text ? (
+          <Text
+            style={[
+              styles.textOverlay,
+              {
+                color,
+                fontSize,
+                opacity: opacity / 100,
+              },
+            ]}
+          >
+            {text}
+          </Text>
+        ) : null}
 
-  canvas.addEventListener('pointerup', () => {
-    state.drag = null;
-  });
+        {sticker ? (
+          <Text style={styles.stickerOverlay}>{sticker}</Text>
+        ) : null}
+      </View>
+    );
+  };
 
-  canvas.addEventListener('pointerleave', () => {
-    state.drag = null;
-  });
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" />
+
+      <View style={styles.phoneFrame}>
+        <View style={styles.notch} />
+
+        <LinearGradient
+          colors={['#101827', '#0b1020']}
+          style={styles.appHeader}
+        >
+          <View style={styles.brandRow}>
+            <View style={styles.brandMark}><Text style={styles.brandText}>P</Text></View>
+            <View>
+              <Text style={styles.eyebrow}>PRO SUITE</Text>
+              <Text style={styles.brandName}>PixelCut</Text>
+            </View>
+          </View>
+
+          <Pressable style={styles.uploadButton} onPress={pickImage}>
+            <Text style={styles.uploadIcon}>＋</Text>
+            <Text style={styles.uploadText}>Upload Media</Text>
+          </Pressable>
+        </LinearGradient>
+
+        <View style={styles.toolbarRow}>
+          {TOOL_TABS.map((tab) => (
+            <Pressable
+              key={tab}
+              style={[styles.tabButton, selectedTab === tab && styles.tabButtonActive]}
+              onPress={() => setSelectedTab(tab)}
+            >
+              <Text style={[styles.tabText, selectedTab === tab && styles.tabTextActive]}>
+                {tab === 'adjust' ? 'Adjust' : tab === 'filters' ? 'Filters' : tab === 'text' ? 'Text' : 'Stickers'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {selectedTab === 'adjust' && (
+            <View style={styles.panel}>
+              <SliderRow label="Brightness" value={brightness} max={200} suffix="%" onChange={setBrightness} />
+              <SliderRow label="Contrast" value={contrast} max={200} suffix="%" onChange={setContrast} />
+              <SliderRow label="Saturation" value={saturation} max={200} suffix="%" onChange={setSaturation} />
+              <SliderRow label="Exposure" value={exposure} max={200} suffix="%" onChange={setExposure} />
+              <SliderRow label="Vibrance" value={vibrance} max={200} suffix="%" onChange={setVibrance} />
+              <SliderRow label="Blur" value={blur} max={12} suffix="px" onChange={setBlur} />
+              <SliderRow label="Rotate" value={rotation} min={-180} max={180} suffix="°" onChange={setRotation} />
+              <SliderRow label="Zoom" value={zoom} min={50} max={180} suffix="%" onChange={setZoom} />
+            </View>
+          )}
+
+          {selectedTab === 'filters' && (
+            <View style={styles.panel}>
+              <View style={styles.presetGrid}>
+                {Object.keys(PRESETS).map((name) => (
+                  <Pressable
+                    key={name}
+                    style={[styles.preset, name === 'original' && styles.presetActive]}
+                    onPress={() => applyPreset(name)}
+                  >
+                    <Text style={styles.presetText}>{name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {selectedTab === 'text' && (
+            <View style={styles.panel}>
+              <Text style={styles.label}>Text</Text>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                placeholder="Type something..."
+                placeholderTextColor="#a7b3d1"
+                style={styles.input}
+              />
+
+              <View style={styles.colorRow}>
+                <Text style={styles.label}>Color</Text>
+                <TextInput
+                  value={color}
+                  onChangeText={setColor}
+                  style={styles.colorInput}
+                />
+              </View>
+
+              <Text style={styles.label}>Font Size</Text>
+              <Slider
+                minimumValue={18}
+                maximumValue={80}
+                step={1}
+                value={fontSize}
+                onValueChange={setFontSize}
+                minimumTrackTintColor="#8b5cf6"
+                maximumTrackTintColor="#4b5563"
+                thumbTintColor="#ffffff"
+              />
+
+              <Text style={styles.label}>Opacity</Text>
+              <Slider
+                minimumValue={10}
+                maximumValue={100}
+                step={1}
+                value={opacity}
+                onValueChange={setOpacity}
+                minimumTrackTintColor="#8b5cf6"
+                maximumTrackTintColor="#4b5563"
+                thumbTintColor="#ffffff"
+              />
+            </View>
+          )}
+
+          {selectedTab === 'stickers' && (
+            <View style={styles.panel}>
+              <View style={styles.stickerGrid}>
+                {STICKERS.map((item) => (
+                  <Pressable key={item} style={styles.stickerItem} onPress={() => setSticker(item)}>
+                    <Text style={styles.stickerText}>{item}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={styles.previewArea}>
+          {renderImage()}
+        </View>
+
+        <View style={styles.footerBar}>
+          <Pressable style={styles.secondaryButton} onPress={resetEditor}>
+            <Text style={styles.secondaryText}>Reset</Text>
+          </Pressable>
+          <Pressable style={styles.primaryButton}>
+            <Text style={styles.primaryText}>Export</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
 }
 
-updateLabels();
-attachEventHandlers();
-renderCanvas();
+function SliderRow({ label, value, min = 0, max, suffix = '%', onChange }) {
+  return (
+    <View style={styles.sliderWrap}>
+      <View style={styles.sliderHeader}>
+        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.valueText}>{value}{suffix}</Text>
+      </View>
+
+      <Slider
+        minimumValue={min}
+        maximumValue={max}
+        step={1}
+        value={value}
+        onValueChange={onChange}
+        minimumTrackTintColor="#8b5cf6"
+        maximumTrackTintColor="#4b5563"
+        thumbTintColor="#ffffff"
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#070d18',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  phoneFrame: {
+    width: '94%',
+    maxWidth: 430,
+    minHeight: 860,
+    backgroundColor: '#0b1020',
+    borderRadius: 34,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  notch: {
+    width: 120,
+    height: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    backgroundColor: '#050b17',
+    alignSelf: 'center',
+  },
+  appHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  brandMark: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#8b5cf6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  brandText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  eyebrow: {
+    color: '#a7b3d1',
+    fontSize: 10,
+    letterSpacing: 1.4,
+  },
+  brandName: {
+    color: '#edf2ff',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(139, 92, 246, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  uploadIcon: {
+    color: '#ffffff',
+    fontSize: 22,
+    marginRight: 6,
+  },
+  uploadText: {
+    color: '#edf2ff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 4,
+    justifyContent: 'space-between',
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginHorizontal: 3,
+    alignItems: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: 'rgba(139, 92, 246, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.45)',
+  },
+  tabText: {
+    color: '#a7b3d1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: '#edf2ff',
+  },
+  content: {
+    maxHeight: 300,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  panel: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    padding: 12,
+  },
+  sliderWrap: {
+    marginBottom: 4,
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  label: {
+    color: '#a7b3d1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  valueText: {
+    color: '#edf2ff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  presetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  preset: {
+    minWidth: '46%',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+  },
+  presetActive: {
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+    borderColor: 'rgba(139, 92, 246, 0.45)',
+  },
+  presetText: {
+    color: '#edf2ff',
+    fontSize: 12,
+    textTransform: 'capitalize',
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#edf2ff',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  colorInput: {
+    width: 58,
+    height: 34,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    color: '#edf2ff',
+    textAlign: 'center',
+  },
+  stickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  stickerItem: {
+    width: '31%',
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  stickerText: {
+    fontSize: 24,
+  },
+  previewArea: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
+  placeholder: {
+    height: 420,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  placeholderText: {
+    color: '#edf2ff',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  placeholderSubtext: {
+    color: '#a7b3d1',
+    fontSize: 15,
+    marginTop: 8,
+  },
+  imageFrame: {
+    height: 420,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    position: 'relative',
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  textOverlay: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 8,
+  },
+  stickerOverlay: {
+    position: 'absolute',
+    top: 20,
+    right: 28,
+    fontSize: 42,
+    textShadowColor: 'rgba(0,0,0,0.42)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 10,
+  },
+  footerBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 18,
+  },
+  secondaryButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginRight: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  secondaryText: {
+    color: '#edf2ff',
+    fontWeight: '700',
+  },
+  primaryButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginLeft: 8,
+    alignItems: 'center',
+    backgroundColor: '#8b5cf6',
+  },
+  primaryText: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+});
